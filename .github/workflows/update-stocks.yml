@@ -2,14 +2,16 @@ name: Daily Stock Update
 
 on:
   schedule:
-    - cron: "0 17 * * 1-5" # Runs at 5 PM EST on weekdays
+    - cron: "0 22 * * 1-5" # 5 PM EST = 10 PM UTC
   workflow_dispatch: # Allows manual trigger
 
 jobs:
   update-stocks:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout repo
+        uses: actions/checkout@v2
 
       - name: Setup Node.js
         uses: actions/setup-node@v2
@@ -19,7 +21,27 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download previous stockPrice.json (if exists)
+        uses: actions/download-artifact@v4
+        with:
+          name: stock-data
+        continue-on-error: true
+
+      - name: Check if today's data already exists
+        id: check
+        run: |
+          if [ -f stockPrice.json ]; then
+            FETCH_DATE=$(jq -r '.fetchDate' stockPrice.json)
+            TODAY=$(date -I)
+            FETCH_DAY=$(date -I -d "$FETCH_DATE")
+            echo "Fetched on $FETCH_DAY; today is $TODAY"
+            if [ "$FETCH_DAY" = "$TODAY" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Run stock update script
+        if: steps.check.outputs.skip != 'true'
         env:
           GOOGLE_PROJECT_ID: ${{ secrets.GOOGLE_PROJECT_ID }}
           GOOGLE_PRIVATE_KEY_ID: ${{ secrets.GOOGLE_PRIVATE_KEY_ID }}
@@ -28,3 +50,10 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CERT_URL: ${{ secrets.GOOGLE_CERT_URL }}
         run: npm start
+
+      - name: Upload today's stockPrice.json
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-data
+          path: stockPrice.json
