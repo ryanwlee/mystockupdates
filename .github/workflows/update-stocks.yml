@@ -1,0 +1,30 @@
+name: Daily Stock Update
+
+on:
+  schedule:
+    - cron: "0 17 * * 1-5" # Runs at 5 PM EST on weekdays
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  update-stocks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run stock update script
+        env:
+          GOOGLE_PROJECT_ID: ${{ secrets.GOOGLE_PROJECT_ID }}
+          GOOGLE_PRIVATE_KEY_ID: ${{ secrets.GOOGLE_PRIVATE_KEY_ID }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CERT_URL: ${{ secrets.GOOGLE_CERT_URL }}
+        run: npm start
