@@ -1,12 +1,11 @@
 require("dotenv").config();
 const https = require("https");
-const fs = require("fs");
 const { google } = require("googleapis");
 const stockList = require("./stockList");
 
 // Google Sheets setup
 const SPREADSHEET_ID = "1ih85AzACWKno0b9jmlmjpS8ma42rV33KsdidbXJP904";
-const RANGE = "Sheet1!A2:D"; // Adjust based on your sheet structure
+const MST_TIMEZONE = "America/Denver";
 
 async function getGoogleSheetAuth() {
   const credentials = {
@@ -30,70 +29,76 @@ async function getGoogleSheetAuth() {
   return auth;
 }
 
-async function updateGoogleSheet(data) {
-  try {
-    const auth = await getGoogleSheetAuth();
-    const sheets = google.sheets({ version: "v4", auth });
+function isSameDayMST(date1, date2) {
+  const d1 = new Date(
+    date1.toLocaleString("en-US", { timeZone: MST_TIMEZONE })
+  );
+  const d2 = new Date(
+    date2.toLocaleString("en-US", { timeZone: MST_TIMEZONE })
+  );
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
 
-    // Prepare current prices and 52 week highs separately
-    const currentPrices = data.stocks.map((stock) => [stock.currentPrice]);
-    const fiftyTwoWeekHighs = data.stocks.map((stock) => [
-      stock.fiftyTwoWeekHigh,
-    ]);
+async function getLastFetchDate(sheets) {
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "Portfolio!C1",
+  });
 
-    // Update last updated date in A1
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "Portfolio!A1",
+  const rawText = result.data.values?.[0]?.[0] || "";
+  const match = rawText.match(/Data from: (.+)/);
+  if (!match) return null;
+
+  const parsedDate = new Date(match[1]);
+  return isNaN(parsedDate) ? null : parsedDate;
+}
+
+async function updateGoogleSheet(data, sheets) {
+  const now = new Date();
+  const nowMST = now.toLocaleString("en-US", { timeZone: MST_TIMEZONE });
+  const fetchDateMST = new Date(data.fetchDate).toLocaleString("en-US", {
+    timeZone: MST_TIMEZONE,
+  });
+
+  const currentPrices = data.stocks.map((stock) => [stock.currentPrice]);
+  const fiftyTwoWeekHighs = data.stocks.map((stock) => [
+    stock.fiftyTwoWeekHigh,
+  ]);
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    resource: {
       valueInputOption: "USER_ENTERED",
-      resource: {
-        values: [[`Last Updated: ${new Date().toLocaleString()}`]],
-      },
-    });
+      data: [
+        {
+          range: "Portfolio!A1",
+          values: [[`Last Updated: ${nowMST}`]],
+        },
+        {
+          range: "Portfolio!C1",
+          values: [[`Data from: ${fetchDateMST}`]],
+        },
+        {
+          range: "Portfolio!A3",
+          values: [[nowMST]],
+        },
+        {
+          range: "Portfolio!C3:C128",
+          values: currentPrices,
+        },
+        {
+          range: "Portfolio!D3:D128",
+          values: fiftyTwoWeekHighs,
+        },
+      ],
+    },
+  });
 
-    // Add fetch date in C1
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "Portfolio!C1",
-      valueInputOption: "USER_ENTERED",
-      resource: {
-        values: [[`Data from: ${new Date(data.fetchDate).toLocaleString()}`]],
-      },
-    });
-
-    // Add current time at A3
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "Portfolio!A3",
-      valueInputOption: "USER_ENTERED",
-      resource: {
-        values: [[new Date().toLocaleString()]],
-      },
-    });
-
-    // Update current prices (Column C)
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "Portfolio!C3:C128",
-      valueInputOption: "USER_ENTERED",
-      resource: { values: currentPrices },
-    });
-
-    // Update 52 week highs (Column D)
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "Portfolio!D3:D128",
-      valueInputOption: "USER_ENTERED",
-      resource: { values: fiftyTwoWeekHighs },
-    });
-
-    console.log("Google Sheet updated successfully!");
-  } catch (error) {
-    console.error("Error updating Google Sheet:", error.message);
-    if (error.response) {
-      console.error("Error details:", error.response.data);
-    }
-  }
+  console.log("✅ Google Sheet updated successfully.");
 }
 
 function getStockData(symbol) {
@@ -119,11 +124,7 @@ function getStockData(symbol) {
             const parsed = JSON.parse(data);
             const price = parsed.chart.result[0].meta.regularMarketPrice;
             const high = parsed.chart.result[0].meta.fiftyTwoWeekHigh;
-            resolve({
-              symbol,
-              currentPrice: price,
-              fiftyTwoWeekHigh: high,
-            });
+            resolve({ symbol, currentPrice: price, fiftyTwoWeekHigh: high });
           } catch (error) {
             reject(error);
           }
@@ -133,66 +134,39 @@ function getStockData(symbol) {
   });
 }
 
-function isSameDay(date1, date2) {
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
-  );
-}
-
 async function main() {
-  let stockData;
+  const auth = await getGoogleSheetAuth();
+  const sheets = google.sheets({ version: "v4", auth });
 
-  // Check if we already have today's data
-  try {
-    if (fs.existsSync("stockPrice.json")) {
-      const fileContent = fs.readFileSync("stockPrice.json", "utf8");
-      const existingData = JSON.parse(fileContent);
+  const lastFetchDate = await getLastFetchDate(sheets);
+  const now = new Date();
 
-      if (
-        existingData.fetchDate &&
-        isSameDay(new Date(existingData.fetchDate), new Date())
-      ) {
-        console.log("Already fetched data today. Using existing data.");
-        stockData = existingData;
-      }
-    }
-  } catch (error) {
-    console.log(
-      "No existing data found or error reading file. Fetching new data..."
-    );
+  if (lastFetchDate && isSameDayMST(lastFetchDate, now)) {
+    console.log("🟡 Already fetched data today (MST). Skipping update.");
+    return;
   }
 
-  // Fetch new data if needed
-  if (!stockData) {
-    console.log("Fetching stock prices...");
-    const results = [];
+  console.log("🔄 Fetching new stock data...");
+  const results = [];
 
-    for (const symbol of stockList) {
-      try {
-        const data = await getStockData(symbol);
-        results.push(data);
-        console.log(`Fetched ${symbol}`);
-      } catch (error) {
-        console.error(`Error fetching ${symbol}:`, error.message);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  for (const symbol of stockList) {
+    try {
+      const data = await getStockData(symbol);
+      results.push(data);
+      console.log(`✅ Fetched ${symbol}`);
+    } catch (error) {
+      console.error(`❌ Error fetching ${symbol}:`, error.message);
     }
-
-    stockData = {
-      fetchDate: new Date().toISOString(),
-      stocks: results,
-    };
-
-    fs.writeFileSync("stockPrice.json", JSON.stringify(stockData, null, 2));
-    console.log("\nDone! Results saved to stockPrice.json");
-    console.log(`Successfully fetched ${results.length} stocks`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  // Update Google Sheet
-  console.log("\nUpdating Google Sheet...");
-  await updateGoogleSheet(stockData);
+  const stockData = {
+    fetchDate: now.toISOString(),
+    stocks: results,
+  };
+
+  console.log("📝 Updating Google Sheet...");
+  await updateGoogleSheet(stockData, sheets);
 }
 
 main().catch(console.error);
