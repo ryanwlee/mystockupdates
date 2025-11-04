@@ -3,7 +3,7 @@ const https = require("https");
 const { google } = require("googleapis");
 const stockList = require("./stockList");
 
-// Google Sheets setup const
+// Google Sheets setup consts
 const SPREADSHEET_ID = "1ih85AzACWKno0b9jmlmjpS8ma42rV33KsdidbXJP904";
 const MST_TIMEZONE = "America/Denver";
 
