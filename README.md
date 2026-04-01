@@ -4,7 +4,7 @@ Stock price updater for Google Sheets. This project fetches current prices + 52-
 
 ## What it does
 
-- **Fetches quotes**: Calls the Yahoo Finance chart API for each symbol in `stockList.js`.
+- **Fetches quotes**: Calls the Yahoo Finance chart API for each symbol in `stockList.js`. 
 - **Writes to Google Sheets**: Batch-updates specific ranges on the `Portfolio` sheet tab.
 - **Runs at most once/day (MST)**: Reads `Portfolio!C1` (`Data from: ...`) and skips if the sheet already has data for “today” in `America/Denver`.
 
