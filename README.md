@@ -1,4 +1,4 @@
-# mystockupdates
+# mystockupdates 
 
 Stock price updater for Google Sheets. This project fetches current prices + 52-week highs from Yahoo Finance for a configured list of symbols, then writes the results into a Google Sheet via the Google Sheets API.
 
