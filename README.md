@@ -1,10 +1,10 @@
-# mystockupdates 
+# mystockupdates
 
 Stock price updater for Google Sheets. This project fetches current prices + 52-week highs from Yahoo Finance for a configured list of symbols, then writes the results into a Google Sheet via the Google Sheets API.
 
 ## What it does
 
-- **Fetches quotes**: Calls the Yahoo Finance chart API for each symbol in `stockList.js`. 
+- **Fetches quotes**: Calls the Yahoo Finance chart API for each symbol in `stockList.js`.
 - **Writes to Google Sheets**: Batch-updates specific ranges on the `Portfolio` sheet tab.
 - **Runs at most once/day (MST)**: Reads `Portfolio!C1` (`Data from: ...`) and skips if the sheet already has data for “today” in `America/Denver`.
 
@@ -38,6 +38,7 @@ GOOGLE_CERT_URL="https://www.googleapis.com/robot/v1/metadata/x509/...@...gservi
 ```
 
 Notes:
+
 - `GOOGLE_PRIVATE_KEY` must preserve newlines. This project converts literal `\n` into real newlines at runtime.
 - Don’t commit `.env` or any key JSON into source control.
 
@@ -82,4 +83,3 @@ This runs `node stocks.js` (warnings suppressed via `NODE_NO_WARNINGS=1` in the 
 - **403 / permission errors**: Ensure the spreadsheet is shared with the service account email (`GOOGLE_CLIENT_EMAIL`).
 - **Invalid private key**: Make sure `GOOGLE_PRIVATE_KEY` includes the full key and uses `\n` between lines.
 - **Nothing updates**: If you already ran today (MST), the script will skip with “Already fetched data today (MST).”
-
